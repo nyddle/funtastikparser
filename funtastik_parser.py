@@ -1,38 +1,44 @@
 # -*- coding: utf-8 -*-
-import hashlib
-import time
-import urllib2, urllib, random
-import re
 import requests
 
 ACCESS_KEY = 'AKIAI2SXOF6YS3UOMEWA'
 SECRET_ACCESS_KEY = 'KVy3qguXvVDYVkTDlO5W+G+5D4F4dGi92svuq2p'
 
 
-class VKWallLoader(object):
+class VkApiServer(object):
     API_VERSION = '5.16'
     API_ID = '4274771'
     API_SECRET = 'EV9LaqJCOpmDaA6afbgz'
     API_URL = 'http://api.vk.com/method/'
+    # TODO: 3 запроса в секунду
 
     def _params(self, method_params):
-        p = {'api_id': self.API_ID,
-             'format': 'JSON',
-             'v': self.API_VERSION}
-        p.update(method_params)
-        return p
+        params = {
+            'api_id': self.API_ID,
+            'format': 'JSON',
+            'v': self.API_VERSION
+        }
+
+        params.update(method_params)
+        return params
 
     def get(self, method, method_params):
-        """return response (dict)"""
-        # todo: refactor
-        p = self._params(method_params)
-        r = requests.get(self.API_URL + method, params=p)
-        print self.API_URL + method
-        if 'response' in r.json():
-            return r.json()['response']
-        if 'error' in r.json():
-            print r.json()['error']
-        raise Exception("Error description must be here")
+        """ return response (dict) """
+
+        params = self._params(method_params)
+        response = requests.get(self.API_URL + method, params=params)
+        response_json = response.json()
+
+        if 'response' in response_json:
+            return response_json['response']
+
+        if 'error' in response_json:
+            error = response_json['error']
+
+            raise Exception('VkApi error (%s): %s' % (
+                error['error_code'],
+                error['error_msg'])
+            )
 
 
 class Source(object):
@@ -40,7 +46,7 @@ class Source(object):
         self.target = target
         self.count = count
         self.start_from = start_from
-        self.parser = VKWallLoader()
+        self.parser = VkApiServer()
 
     def load_images(self):
         photos = self.__get_wall_photos()
@@ -49,7 +55,7 @@ class Source(object):
             return links
 
     def __get_wall_photos(self):
-        data = self. parser.get('wall.get', {'domain': self.target})
+        data = self.parser.get('wall.get', {'domain': self.target})
         photos = []
         for item in data['items']:
             if 'attachments' in item and len(item['attachments']) == 1 and \
@@ -60,12 +66,20 @@ class Source(object):
                 #                   'owner_id': item['attachments'][0]['photo']['owner_id'],
                 #                   'id': item['attachments'][0]['photo']['id'],
                 #                   'access_key': item['attachments'][0]['photo']['access_key']}
+
+        # TODO: вынести в другую функцию?
         if photos:
-            return {'photo_ids': ','.join([str(i) for i in photos]), 'owner_id': data['items'][0]['owner_id'], 'album_id': 'wall',
-                                  'extended': 0, 'photo_sizes': 1}
+            params = {
+                'photo_ids': ','.join([str(i) for i in photos]),
+                'owner_id': data['items'][0]['owner_id'],
+                'album_id': 'wall',
+                'extended': 0,
+                'photo_sizes': 1
+            }
+
+            return params
 
     def __get_links(self, photo_ids):
-
         photos = self.parser.get('photos.get', photo_ids)
         print photos
         links = []
@@ -90,6 +104,7 @@ class Source(object):
 if __name__ == '__main__':
     s = Source('mdk', 10)
     print s.load_images()
+
     # for k in s.load_images():
     #
     #     if 'attachments' in k:
