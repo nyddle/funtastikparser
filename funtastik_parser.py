@@ -1,9 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 This module provides functionality for grabbing photos from walls via VK API
-
-TODO: multithreading
-TODO: refactor
 """
 import requests
 
@@ -11,7 +8,7 @@ ACCESS_KEY = 'AKIAI2SXOF6YS3UOMEWA'
 SECRET_ACCESS_KEY = 'KVy3qguXvVDYVkTDlO5W+G+5D4F4dGi92svuq2p'
 
 
-class VKWallLoader(object):
+class VKAPIWrapper(object):
     """
     An easy wrapper for store VK credentials/wrap API call
     """
@@ -24,33 +21,41 @@ class VKWallLoader(object):
         """
         Create dict of parameters which should be passed into url
         """
-        p = {'api_id': self.API_ID,
-             'format': 'JSON',
-             'v': self.API_VERSION}
-        p.update(method_params)
-        return p
+        params = {'api_id': self.API_ID,
+                  'format': 'JSON',
+                  'v': self.API_VERSION}
+        params.update(method_params)
+        return params
 
     def get(self, method, method_params):
         """
         Call method with given parameters
         """
-        p = self._params(method_params)
-        r = requests.get(self.API_URL + method, params=p)
-        if 'response' in r.json():
-            return r.json()['response']
-        if 'error' in r.json():
-            raise Exception(r.json()['error'])
+        params = self._params(method_params)
+        r = requests.get(self.API_URL + method, params=params)
+        json_data = r.json()
+        if 'response' in json_data:
+            return json_data['response']
+        if 'error' in json_data:
+            raise Exception(json_data['error'])
         raise Exception("Unknown Exception")
 
 
 class Source(object):
+    """
+    Process a data source(for now - VK only)
+    """
+
     def __init__(self, target, count, start_from=None):
         self.target = target
         self.count = count
         self.start_from = start_from
-        self.parser = VKWallLoader()
+        self.parser = VKAPIWrapper()
 
     def load_images(self):
+        """
+        Load images from source
+        """
         photos = self.__get_wall_photos()
         if photos:
             links = self.__get_links(photos)
@@ -58,7 +63,10 @@ class Source(object):
         return []
 
     def __get_wall_photos(self):
-        data = self. parser.get('wall.get', {'domain': self.target})
+        """
+        Receive posts from VK and fetch actual data
+        """
+        data = self.parser.get('wall.get', {'domain': self.target})
         photos = []
         for item in data['items']:
             if 'attachments' in item and len(item['attachments']) == 1 and \
@@ -67,6 +75,9 @@ class Source(object):
         return photos
 
     def __get_links(self, photos):
+        """
+        Fetch links from  photos data
+        """
         links = []
         for photo in photos:
             link = self.__get_biggest_image_link(photo)
@@ -76,6 +87,9 @@ class Source(object):
 
     @staticmethod
     def __get_biggest_image_link(photo_data):
+        """
+        Find biggest possible size
+        """
         sizes = ['photo_1280', 'photo_807', 'photo_604', 'photo_130',
                  'photo_75']
         for size in sizes:
@@ -83,20 +97,7 @@ class Source(object):
                 return photo_data[size]
 
     def push_results(self):
+        """
+        Push results to server
+        """
         pass
-
-    # this method we may use if problems with photo get will be figured out
-    # @staticmethod
-    # def __get_biggest_image_link(image_sizes):
-    #     print image_sizes
-    #     sizes = ['w', 'z', 'y', 'x', 'm', 's']
-    #     d = dict([(i['type'], i['src']) for i in image_sizes])
-    #     for s in sizes:
-    #         if s in d.keys():
-    #             return d[s]
-
-
-if __name__ == '__main__':
-    s = Source('mdk', 15)
-    for i in s.load_images():
-        print i
