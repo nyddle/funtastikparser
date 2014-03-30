@@ -11,7 +11,3 @@ Posts:
 - likes
 - share
 - comments
-- lang
-
-
-
