@@ -6,6 +6,7 @@ import sys
 import shelve
 import argparse
 import requests
+import json
 from copy import deepcopy
 
 # todo: move to separate config
@@ -136,7 +137,6 @@ class Source(object):
         """
         imgs = deepcopy(images)
         for i, image in enumerate(images):
-            import json
             r = requests.get(SERVER_URL, params={'data': str(json.dumps(image))})
             print '================================='
             print r.url
@@ -147,12 +147,10 @@ class Source(object):
         return imgs
 
     def store_metadata(self, images):
-
-        self.storage['sources'] = {}
         self.storage['sources'][self.target]['latest'] = self.latest_post_timestamp
         self.storage['sources'][self.target]['images'] = images + \
                                             self.storage['sources'][self.target]['images'] \
-            if 'images' in self.storage[self.target] else images
+            if 'images' in self.storage['sources'][self.target] else images
 
 
 if __name__ == '__main__':
