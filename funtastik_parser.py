@@ -95,7 +95,8 @@ class Source(object):
         server_time = int(self.parser.get('getServerTime', {}))
         if len(data['items']) > 0:
             if self.latest_post_timestamp is None or \
-                    not int(data['items'][0]['date']) < self.latest_post_timestamp:
+                    not int(data['items'][0]['date']) \
+                    < self.latest_post_timestamp:
 
                 self.latest_post_timestamp = int(data['items'][0]['date'])
                 for item in data['items']:
@@ -137,25 +138,28 @@ class Source(object):
         """
         imgs = deepcopy(images)
         for i, image in enumerate(images):
-            r = requests.get(SERVER_URL, params={'data': str(json.dumps(image))})
+            r = requests.get(SERVER_URL, params={'data': str(json.dumps(image))
+                                                 })
             print '================================='
             print r.url
             print '================================='
             if r.status_code != 200:
                 print 'error!', r.text
-                #imgs.pop()
+                #  imgs.pop()
         return imgs
 
     def store_metadata(self, images):
-        self.storage['sources'][self.target]['latest'] = self.latest_post_timestamp
-        self.storage['sources'][self.target]['images'] = images + \
-                                            self.storage['sources'][self.target]['images'] \
+        self.storage['sources'][self.target]['latest'] = \
+            self.latest_post_timestamp
+        self.storage['sources'][self.target]['images'] = \
+            images + self.storage['sources'][self.target]['images'] \
             if 'images' in self.storage['sources'][self.target] else images
 
 
 if __name__ == '__main__':
     # todo: it's ugly. Refactoring needed
-    # todo: rm storage
+    # todo: rm(clean) storage
+    # todo: mongo
     # todo: multithreading
     # todo: commited to server for every image
     parser = argparse.ArgumentParser()
@@ -165,29 +169,31 @@ if __name__ == '__main__':
     storage = shelve.open('test_db.db', writeback=True)
     if args.action == 'add':
         if args.param is not None:
-            if not 'sources' in storage:
+            if 'sources' not in storage:
                 storage['sources'] = {}
             if args.param not in storage['sources']:
-                if not 'sources' in storage:
+                if 'sources' not in storage:
                     storage['sources'] = {}
                 # todo: check for spaces
                 storage['sources'][args.param] = {'images': []}
                 sys.stdout.write('Source added\n')
             else:
                 sys.stdout.write('Source "%s" already exists. '
-                                 'Run `list` to get all sources\n' % args.param)
+                                 'Run `list` to get all sources\n' %
+                                 args.param)
         else:
-            sys.stdout.write('You should pass source name as second parameter\n')
+            sys.stdout.write('You should pass source name as '
+                             'second parameter\n')
     elif args.action == 'list':
-        if not 'sources' in storage or len(storage['sources']) == 0:
+        if 'sources' not in storage or len(storage['sources']) == 0:
             sys.stdout.write('No sources has been added\n')
         else:
             for source_name, source_data in storage['sources'].iteritems():
-                sys.stdout.write('{}, images:{}\n'.format(source_name,
-                                                        len(source_data['images']))
-                             )
+                sys.stdout.write(
+                    '{}, images:{}\n'.format(source_name,
+                                             len(source_data['images'])))
     elif args.action == 'refresh':
-        if not 'sources' in storage or len(storage['sources']) == 0:
+        if 'sources' not in storage or len(storage['sources']) == 0:
             storage['sources'] = {}
             sys.stdout.write('You dont\'t have any source\n')
         else:
