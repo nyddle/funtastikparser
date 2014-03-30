@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
-import hashlib
-import time
-import urllib2, urllib, random
-import re
+"""
+This module provides functionality for grabbing photos from walls via VK API
+
+TODO: multithreading
+TODO: refactor
+"""
 import requests
 
 ACCESS_KEY = 'AKIAI2SXOF6YS3UOMEWA'
@@ -10,12 +12,18 @@ SECRET_ACCESS_KEY = 'KVy3qguXvVDYVkTDlO5W+G+5D4F4dGi92svuq2p'
 
 
 class VKWallLoader(object):
+    """
+    An easy wrapper for store VK credentials/wrap API call
+    """
     API_VERSION = '5.16'
     API_ID = '4274771'
     API_SECRET = 'EV9LaqJCOpmDaA6afbgz'
     API_URL = 'http://api.vk.com/method/'
 
     def _params(self, method_params):
+        """
+        Create dict of parameters which should be passed into url
+        """
         p = {'api_id': self.API_ID,
              'format': 'JSON',
              'v': self.API_VERSION}
@@ -23,16 +31,16 @@ class VKWallLoader(object):
         return p
 
     def get(self, method, method_params):
-        """return response (dict)"""
-        # todo: refactor
+        """
+        Call method with given parameters
+        """
         p = self._params(method_params)
         r = requests.get(self.API_URL + method, params=p)
-        print self.API_URL + method
         if 'response' in r.json():
             return r.json()['response']
         if 'error' in r.json():
-            print r.json()['error']
-        raise Exception("Error description must be here")
+            raise Exception(r.json()['error'])
+        raise Exception("Unknown Exception")
 
 
 class Source(object):
@@ -47,6 +55,7 @@ class Source(object):
         if photos:
             links = self.__get_links(photos)
             return links
+        return []
 
     def __get_wall_photos(self):
         data = self. parser.get('wall.get', {'domain': self.target})
@@ -54,47 +63,40 @@ class Source(object):
         for item in data['items']:
             if 'attachments' in item and len(item['attachments']) == 1 and \
                             item['attachments'][0]['type'] == 'photo':
-                print item['attachments'][0]['photo']
-                photos.append(item['attachments'][0]['photo']['id'])
-                # k = {
-                #                   'owner_id': item['attachments'][0]['photo']['owner_id'],
-                #                   'id': item['attachments'][0]['photo']['id'],
-                #                   'access_key': item['attachments'][0]['photo']['access_key']}
-        if photos:
-            return {'photo_ids': ','.join([str(i) for i in photos]), 'owner_id': data['items'][0]['owner_id'], 'album_id': 'wall',
-                                  'extended': 0, 'photo_sizes': 1}
+                photos.append(item['attachments'][0]['photo'])
+        return photos
 
-    def __get_links(self, photo_ids):
-
-        photos = self.parser.get('photos.get', photo_ids)
-        print photos
+    def __get_links(self, photos):
         links = []
-        for photo in photos['items']:
-            link = self.__get_biggest_image_link(photo['sizes'])
-            links.append(link)
+        for photo in photos:
+            link = self.__get_biggest_image_link(photo)
+            if link is not None:
+                links.append(link)
         return links
 
     @staticmethod
-    def __get_biggest_image_link(image_sizes):
-        print image_sizes
-        sizes = ['w', 'z', 'y', 'x', 'm', 's']
-        d = dict([(i['type'], i['src']) for i in image_sizes])
-        for s in sizes:
-            if s in d.keys():
-                return d[s]
+    def __get_biggest_image_link(photo_data):
+        sizes = ['photo_1280', 'photo_807', 'photo_604', 'photo_130',
+                 'photo_75']
+        for size in sizes:
+            if size in photo_data.keys():
+                return photo_data[size]
 
-    def __download(self):
+    def push_results(self):
         pass
+
+    # this method we may use if problems with photo get will be figured out
+    # @staticmethod
+    # def __get_biggest_image_link(image_sizes):
+    #     print image_sizes
+    #     sizes = ['w', 'z', 'y', 'x', 'm', 's']
+    #     d = dict([(i['type'], i['src']) for i in image_sizes])
+    #     for s in sizes:
+    #         if s in d.keys():
+    #             return d[s]
 
 
 if __name__ == '__main__':
-    s = Source('mdk', 10)
-    print s.load_images()
-    # for k in s.load_images():
-    #
-    #     if 'attachments' in k:
-    #         if len(k['attachments']):
-    #             print k['attachments'][0]
-    #         for m in k['attachments']:
-    #             pass
-    # print m['photo'].keys(), '\n'
+    s = Source('mdk', 15)
+    for i in s.load_images():
+        print i
