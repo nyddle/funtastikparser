@@ -8,6 +8,7 @@ import argparse
 import requests
 import json
 from copy import deepcopy
+import os
 
 # todo: move to separate config
 ACCESS_KEY = 'AKIAI2SXOF6YS3UOMEWA'
@@ -166,7 +167,9 @@ if __name__ == '__main__':
     parser.add_argument('action')
     parser.add_argument('param', nargs='?')
     args = parser.parse_args()
-    storage = shelve.open('test_db.db', writeback=True)
+
+    storage = shelve.open(os.path.join(os.path.dirname(__file__),
+                                       'test_db.db'), writeback=True)
     if args.action == 'add':
         if args.param is not None:
             if 'sources' not in storage:
