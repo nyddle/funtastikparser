@@ -229,14 +229,17 @@ class Client(object):
         for source in self.storage.get_sources():
             # later here will be mapping with type of resources and parsers.
             # later. not now.
-            parser = VKSource(source['domain'], 100)
-            parser.latest_post_timestamp = source['latest_post_timestamp']
-            print parser.latest_post_timestamp, type(parser.latest_post_timestamp)
-            images = parser.refresh()
+            try:
+                parser = VKSource(source['domain'], 100)
+                parser.latest_post_timestamp = source['latest_post_timestamp']
+                print parser.latest_post_timestamp, type(parser.latest_post_timestamp)
+                images = parser.refresh()
 
-            self.storage.store_images(source['domain'],
-                                      images, parser.latest_post_timestamp)
-            added += len(images)
+                self.storage.store_images(source['domain'],
+                                          images, parser.latest_post_timestamp)
+                added += len(images)
+            except:
+                continue
         sys.stdout.write('{} images has been parsed\n'.format(added))
 
 if __name__ == '__main__':
