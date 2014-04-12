@@ -10,10 +10,16 @@ import json
 from copy import deepcopy
 import os
 
+import pymongo
+from bson.dbref import DBRef
+
 # todo: move to separate config
 ACCESS_KEY = 'AKIAI2SXOF6YS3UOMEWA'
 SECRET_ACCESS_KEY = 'KVy3qguXvVDYVkTDlO5W+G+5D4F4dGi92svuq2p'
 SERVER_URL = 'http://95.85.22.116:5000/addimage'
+# mongo settings
+HOST = 'localhost'
+PORT = 27017
 
 
 class VKAPIWrapper(object):
@@ -50,23 +56,69 @@ class VKAPIWrapper(object):
         raise Exception("Unknown Exception")
 
 
-class Source(object):
+class AlreadyExist(Exception):
+    pass
+
+
+class CollectionEmpty(Exception):
+    pass
+
+
+class MongoStorage(object):
+    client = pymongo.MongoClient(HOST, PORT)
+    db = client.funtastik_parser
+
+    def add_source(self, source, source_type='vk'):
+        with self.client.start_request():
+            if self.db.sources.find({'domain': source}).count():
+                raise AlreadyExist
+            self.db.sources.insert({'domain': source, 'type': source_type,
+                                    'images': [], 'latest_post_timestamp': 0})
+
+    def get_sources(self):
+        sources = self.db.sources.find()
+        result = []
+        if sources:
+            for source in sources:
+                source_images = []
+                for image in source['images']:
+                    source_images.append(self.db.dereference(image))
+                source['images'] = source_images
+                result.append(source)
+            return result
+        raise CollectionEmpty
+
+    def store_images(self, source, images, latest_post_timestamp):
+        if len(images):
+            with self.client.start_request():
+                images = deepcopy(images)
+                for image in images:
+                    image['source'] = source
+                db_images = self.db.images.insert(images)
+
+                self.db.sources.update({'domain': source},
+                                       {'$set': {'latest_post_timestamp': latest_post_timestamp}, '$push': {'images': {'$each': [DBRef(collection='sources', id=i) for i in db_images]}}})
+
+
+class VKSource(object):
     """
     Process a data source(for now - VK only)
     """
 
-    def __init__(self, target, count, storage, start_from=None):
+    def __init__(self, target, count, start_from=None):
         self.target = target
         self.count = count
         self.start_from = start_from
         self.parser = VKAPIWrapper()
         self.latest_post_timestamp = None
-        self.storage = storage
+        self.client = MongoStorage()
 
     def refresh(self):
+        print 'Loading images...'
         images = self.load_images()
+        print 'Push images...'
         images = self.push_results(images)
-        self.store_metadata(images)
+        return images
 
     def load_images(self):
         """
@@ -76,7 +128,6 @@ class Source(object):
         data = []
         if photos:
             for photo in photos:
-                print photo.keys()
                 link = self.__get_biggest_image_link(photo)
                 if link is not None:
                     data.append({'href': link,
@@ -94,20 +145,23 @@ class Source(object):
                                             'count': 100})
         photos = []
         server_time = int(self.parser.get('getServerTime', {}))
+        print int(data['items'][0]['date']), self.latest_post_timestamp
+
         if len(data['items']) > 0:
             if self.latest_post_timestamp is None or \
-                    not int(data['items'][0]['date']) \
-                    < self.latest_post_timestamp:
+                    (int(data['items'][0]['date']) - self.latest_post_timestamp) > 3600:
 
                 self.latest_post_timestamp = int(data['items'][0]['date'])
                 for item in data['items']:
-                    if 'attachments' in item and len(item['attachments']) == 1\
+                    if 'attachments' in item and len(item['attachments']) == 1 \
                             and item['attachments'][0]['type'] == 'photo' \
-                            and server_time - int(item['date']) > 3600:
+                            and server_time - int(item['date']) > 3600 and not (self.latest_post_timestamp is None or
+                                (int(item['date']) - self.latest_post_timestamp)) > 3600:
                         photo = item['attachments'][0]['photo']
                         photo['likes'] = item['likes']
                         photo['comments'] = item['comments']
                         photo['reposts'] = item['reposts']
+                        print 'Appended', str(item['attachments'][0]['photo']['id'])
                         photos.append(photo)
         return photos
 
@@ -139,23 +193,51 @@ class Source(object):
         """
         imgs = deepcopy(images)
         for i, image in enumerate(images):
+            print 'Prepare request...'
             r = requests.get(SERVER_URL, params={'data': str(json.dumps(image))
-                                                 })
-            print '================================='
-            print r.url
-            print '================================='
+            })
+            print 'Request succeed'
             if r.status_code != 200:
                 print 'error!', r.text
-                #  imgs.pop()
+            else:
+                print 'Pushed', str(image)
         return imgs
 
-    def store_metadata(self, images):
-        self.storage['sources'][self.target]['latest'] = \
-            self.latest_post_timestamp
-        self.storage['sources'][self.target]['images'] = \
-            images + self.storage['sources'][self.target]['images'] \
-            if 'images' in self.storage['sources'][self.target] else images
 
+class Client(object):
+    storage = MongoStorage()
+
+    def add(self, source):
+        try:
+            self.storage.add_source(source)
+        except AlreadyExist:
+            sys.stdout.write('Source already in DB\n')
+        else:
+            sys.stdout.write('Source has been added\n')
+
+    def get_list(self):
+        try:
+            sources = self.storage.get_sources()
+        except CollectionEmpty:
+            sys.stdout.write('You don\'t have any source\n')
+        else:
+            for row in [(s['domain'], len(s['images'])) for s in sources]:
+                sys.stdout.write('{}, images: {}\n'.format(row[0], row[1]))
+
+    def refresh(self):
+        added = 0
+        for source in self.storage.get_sources():
+            # later here will be mapping with type of resources and parsers.
+            # later. not now.
+            parser = VKSource(source['domain'], 100)
+            parser.latest_post_timestamp = source['latest_post_timestamp']
+            print parser.latest_post_timestamp, type(parser.latest_post_timestamp)
+            images = parser.refresh()
+
+            self.storage.store_images(source['domain'],
+                                      images, parser.latest_post_timestamp)
+            added += len(images)
+        sys.stdout.write('{} images has been parsed\n'.format(added))
 
 if __name__ == '__main__':
     # todo: it's ugly. Refactoring needed
@@ -163,53 +245,23 @@ if __name__ == '__main__':
     # todo: mongo
     # todo: multithreading
     # todo: commited to server for every image
+    # todo: exceptions
     parser = argparse.ArgumentParser()
     parser.add_argument('action')
     parser.add_argument('param', nargs='?')
     args = parser.parse_args()
 
-    storage = shelve.open(os.path.join(os.path.dirname(__file__),
-                                       'test_db.db'), writeback=True)
+    client = Client()
     if args.action == 'add':
         if args.param is not None:
-            if 'sources' not in storage:
-                storage['sources'] = {}
-            if args.param not in storage['sources']:
-                if 'sources' not in storage:
-                    storage['sources'] = {}
-                # todo: check for spaces
-                storage['sources'][args.param] = {'images': []}
-                sys.stdout.write('Source added\n')
-            else:
-                sys.stdout.write('Source "%s" already exists. '
-                                 'Run `list` to get all sources\n' %
-                                 args.param)
+            client.add(args.param)
+
         else:
             sys.stdout.write('You should pass source name as '
                              'second parameter\n')
+
     elif args.action == 'list':
-        if 'sources' not in storage or len(storage['sources']) == 0:
-            sys.stdout.write('No sources has been added\n')
-        else:
-            for source_name, source_data in storage['sources'].iteritems():
-                sys.stdout.write(
-                    '{}, images:{}\n'.format(source_name,
-                                             len(source_data['images'])))
+        client.get_list()
+
     elif args.action == 'refresh':
-        if 'sources' not in storage or len(storage['sources']) == 0:
-            storage['sources'] = {}
-            sys.stdout.write('You dont\'t have any source\n')
-        else:
-            for source_name, source_data in storage['sources'].iteritems():
-                latest = source_data['latest'] if 'latest' in source_data \
-                    else None
-                # todo: do we really need count and start_from?
-                s = Source(source_name, 50, storage)
-                s.refresh()
-                # try:
-                #     s.refresh()
-                # except Exception as e:
-                #     sys.stdout.write('An error occured: %s\n' % e.message)
-                # else:
-                #     sys.stdout.write('Source %s has been refreshed\n' %
-                #                      source_name)
+        client.refresh()
